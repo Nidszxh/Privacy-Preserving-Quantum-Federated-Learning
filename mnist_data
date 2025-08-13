@@ -1,0 +1,75 @@
+import numpy as np
+from sklearn.datasets import fetch_openml
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import MinMaxScaler
+from skimage.transform import resize
+import matplotlib.pyplot as plt
+
+class MNISTPreprocessor:
+    def __init__(self, digits=(0, 1, 2), test_size=0.2, random_state=42):
+        self.digits, self.test_size, self.rs = digits, test_size, random_state
+        self.scaler = None
+        self.X_train = self.X_test = self.y_train = self.y_test = None
+        np.random.seed(random_state)
+
+    def load_data(self):
+        X, y = fetch_openml('mnist_784', as_frame=False, parser='auto').data, None
+        y = fetch_openml('mnist_784', as_frame=False, parser='auto').target.astype(int)
+        mask = np.isin(y, self.digits)
+        return X[mask], y[mask]
+
+    def normalize(self, X, rng=(-1, 1)):
+        self.scaler = MinMaxScaler(feature_range=rng)
+        return self.scaler.fit_transform(X)
+
+    def resize_imgs(self, X, size=(8, 8)):
+        if not size or size == (28, 28): return X
+        imgs = X.reshape(-1, 28, 28)
+        return np.array([resize(img, size, anti_aliasing=True).ravel() for img in imgs])
+
+    def split(self, X, y):
+        return train_test_split(X, y, test_size=self.test_size, random_state=self.rs, stratify=y)
+
+    def preprocess(self, rng=(-1, 1), size=(8, 8)):
+        X, y = self.load_data()
+        X = self.resize_imgs(X, size)
+        X = self.normalize(X, rng)
+        self.X_train, self.X_test, self.y_train, self.y_test = self.split(X, y)
+        return self.X_train, self.X_test, self.y_train, self.y_test
+
+    def show_info(self):
+        if self.X_train is None: return print("Run preprocess() first.")
+        img_dim = int(np.sqrt(self.X_train.shape[1]))
+        print(f"Digits: {self.digits}, Size: {img_dim}x{img_dim}, "
+              f"Norm: [{self.X_train.min():.3f}, {self.X_train.max():.3f}]")
+        print(f"Train: {len(self.X_train)}, Test: {len(self.X_test)}")
+
+    def visualize(self, n=9):
+        if self.X_train is None: return print("Run preprocess() first.")
+        img_dim = int(np.sqrt(self.X_train.shape[1]))
+        fig, axes = plt.subplots(len(self.digits), n//len(self.digits), figsize=(12, 4))
+        axes = axes.ravel() if len(self.digits) == 1 else axes
+        for i, d in enumerate(self.digits):
+            samples = self.X_train[self.y_train == d][:n//len(self.digits)]
+            for j, img in enumerate(samples):
+                ax = axes[i][j] if len(self.digits) > 1 else axes[j]
+                ax.imshow(img.reshape(img_dim, img_dim), cmap='gray'); ax.axis('off')
+        plt.show()
+
+    def save(self, path='processed_mnist'):
+        if self.X_train is None: return print("Run preprocess() first.")
+        np.savez(f"{path}.npz", X_train=self.X_train, X_test=self.X_test,
+                 y_train=self.y_train, y_test=self.y_test, digits=self.digits)
+
+    def load(self, path='processed_mnist.npz'):
+        d = np.load(path, allow_pickle=True)
+        self.X_train, self.X_test, self.y_train, self.y_test, self.digits = \
+            d['X_train'], d['X_test'], d['y_train'], d['y_test'], d['digits'].tolist()
+        return self.X_train, self.X_test, self.y_train, self.y_test
+
+if __name__ == "__main__":
+    prep = MNISTPreprocessor()
+    X_train, X_test, y_train, y_test = prep.preprocess(rng=(-1, 1), size=(8, 8))
+    prep.show_info()
+    prep.visualize()
+    prep.save('mnist_3digit')
